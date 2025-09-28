@@ -21,7 +21,7 @@
 <a href="{% url 'students:register_course' student.id %}" class="btn btn-primary">Register for Course</a>
       <button id="quick-receipt-btn" class="btn btn-primary">إيصال فوري</button>
 
-      <button id="withdraw-student-btn" class="btn btn-danger">سحب الطالب من الدورة</button>
+      <button id="register-course-btn" class="btn btn-success">تسجيل في دورة</button>
 
     </div>
 
@@ -263,7 +263,7 @@
 
       <div class="section-block">
 
-        <h4><i class="fas fa-school"></i> الدورات الحالية</h4>
+        <h4><i class="fas fa-school"></i> الشعب الدراسية</h4>
 
         {% if enrollments %}
 
@@ -307,6 +307,54 @@
 
         {% endif %}
 
+      </div>
+      
+      <div class="section-block">
+        <h4><i class="fas fa-graduation-cap"></i> الدورات المسجلة</h4>
+        
+        {% if course_enrollments %}
+          <div class="table-responsive">
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th>الدورة</th>
+                  <th>تاريخ التسجيل</th>
+                  <th>المبلغ الإجمالي</th>
+                  <th>المدفوع</th>
+                  <th>المتبقي</th>
+                  <th>الحالة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for enrollment in course_enrollments %}
+                <tr>
+                  <td>{{ enrollment.course.name }}</td>
+                  <td>{{ enrollment.enrollment_date|date:"Y-m-d" }}</td>
+                  <td>{{ enrollment.net_amount|floatformat:2 }}</td>
+                  <td class="text-success">{{ enrollment.amount_paid|floatformat:2 }}</td>
+                  <td class="{% if enrollment.balance_due > 0 %}text-danger{% else %}text-success{% endif %}">
+                    {{ enrollment.balance_due|floatformat:2 }}
+                  </td>
+                  <td>
+                    {% if enrollment.is_completed %}
+                      <span class="badge bg-success">مكتمل</span>
+                    {% elif enrollment.balance_due <= 0 %}
+                      <span class="badge bg-info">مدفوع بالكامل</span>
+                    {% else %}
+                      <span class="badge bg-warning">جاري</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <i class="fas fa-info-circle"></i>
+            لا توجد دورات مسجلة حالياً.
+          </div>
+        {% endif %}
       </div>
 
     </section>
@@ -405,6 +453,47 @@
 
 
 
+<!-- Course Registration Modal -->
+<div id="courseRegistrationModal" class="modal" style="display:none">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h4>تسجيل في دورة جديدة</h4>
+      <button type="button" class="close" data-close>&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="courseRegistrationForm" method="post" action="{% url 'students:register_course' student.id %}">
+        {% csrf_token %}
+        <div class="form-group">
+          <label>اختر الدورة</label>
+          <select name="course_id" class="form-control" required>
+            <option value="">-- اختر الدورة --</option>
+            {% for course in available_courses %}
+              <option value="{{ course.id }}" data-price="{{ course.price }}">
+                {{ course.name }} - السعر: {{ course.price|floatformat:2 }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>سعر الدورة</label>
+          <input id="course-price" type="text" class="form-control" readonly>
+        </div>
+        <div class="form-group">
+          <label>الخصم المطبق</label>
+          <input type="text" class="form-control" value="{{ student.discount_percent|default:0 }}% + {{ student.discount_amount|default:0 }}" readonly>
+        </div>
+        <div class="alert alert-info">
+          <strong>ملاحظة:</strong> سيتم إنشاء حساب الطالب وحساب الدورة تلقائياً، وسيتم تسجيل قيد محاسبي للاستحقاق.
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button id="course-reg-cancel" type="button" class="btn btn-secondary">إلغاء</button>
+      <button id="course-reg-save" type="button" class="btn btn-success">تسجيل في الدورة</button>
+    </div>
+  </div>
+</div>
+
 <!-- Quick Receipt Modal -->
 
 <div id="quickReceiptModal" class="modal" style="display:none">
@@ -431,7 +520,7 @@
 
           {% for c in courses %}
 
-            <option value="{{ c.course.id }}" data-price="{{ c.course.price }}" data-remaining="{{ c.remaining }}">
+            <option value="{{ c.course.id }}" data-remaining="{{ c.remaining }}">
 
               {{ c.course.name }} - المتبقي: {{ c.remaining|floatformat:2 }}
 
@@ -445,33 +534,11 @@
 
       <div class="form-group">
 
-        <label>قيمة الدورة</label>
+        <label>المبلغ المتبقي</label>
 
-        <input id="qr-amount" type="number" class="form-control" step="0.01" min="0" readonly>
-
-      </div>
-
-      <div class="form-group two-columns">
-
-        <div>
-
-          <label>نسبة الخصم %</label>
-
-          <input id="qr-disc-pct" type="number" class="form-control" step="0.01" min="0" value="0" readonly>
-
-        </div>
-
-        <div>
-
-          <label>قيمة الخصم</label>
-
-          <input id="qr-disc-amt" type="number" class="form-control" step="0.01" min="0" value="0" readonly>
-
-        </div>
+        <input id="qr-remaining" type="number" class="form-control" step="0.01" min="0" readonly>
 
       </div>
-
-      <div id="qr-net" class="alert alert-secondary" style="display:none"></div>
 
       <div class="form-group">
 
@@ -488,80 +555,6 @@
       <button id="qr-cancel" type="button" class="btn btn-secondary">إلغاء</button>
 
       <button id="qr-save" type="button" class="btn btn-primary">حفظ الإيصال</button>
-
-    </div>
-
-  </div>
-
-</div>
-
-
-
-<!-- Withdraw Modal -->
-
-<div id="withdrawModal" class="modal" style="display:none">
-
-  <div class="modal-dialog">
-
-    <div class="modal-header">
-
-      <h4>سحب الطالب من الدورة</h4>
-
-      <button type="button" class="close" data-close>&times;</button>
-
-    </div>
-
-    <div class="modal-body">
-
-      <div class="form-group">
-
-        <label>اختر الدورة</label>
-
-        <select id="withdraw-course" class="form-control">
-
-          <option value="">-- اختر الدورة --</option>
-
-          {% for enrollment in course_enrollments %}
-
-            {% with paid=enrollment.total_paid|default_if_none:0 %}
-
-              <option value="{{ enrollment.course.id }}" data-paid="{{ paid|floatformat:2 }}">
-
-                {{ enrollment.course.name }} - المسدّد: {{ paid|floatformat:2 }}
-
-              </option>
-
-            {% endwith %}
-
-          {% endfor %}
-
-        </select>
-
-      </div>
-
-      <div class="form-group">
-
-        <label>المبلغ المدفوع</label>
-
-        <input id="withdraw-paid" type="number" class="form-control" step="0.01" readonly>
-
-      </div>
-
-      <div class="form-group">
-
-        <label>مبلغ الإرجاع</label>
-
-        <input id="withdraw-refund" type="number" class="form-control" step="0.01" min="0">
-
-      </div>
-
-    </div>
-
-    <div class="modal-footer">
-
-      <button id="withdraw-cancel" type="button" class="btn btn-secondary">إلغاء</button>
-
-      <button id="withdraw-confirm" type="button" class="btn btn-danger">تأكيد السحب</button>
 
     </div>
 
@@ -651,8 +644,8 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   initTabs();
+  initCourseRegistration();
   initQuickReceipt();
-  initWithdraw();
 });
 
 function initTabs() {
@@ -693,54 +686,69 @@ function getCSRFToken() {
   return getCookie('csrftoken');
 }
 
+function initCourseRegistration() {
+  const modal = document.getElementById('courseRegistrationModal');
+  const openBtn = document.getElementById('register-course-btn');
+  const saveBtn = document.getElementById('course-reg-save');
+  const cancelEls = modal ? modal.querySelectorAll('[data-close], #course-reg-cancel') : [];
+  const courseSelect = modal ? modal.querySelector('select[name="course_id"]') : null;
+  const priceField = document.getElementById('course-price');
+  
+  if (!modal || !openBtn || !saveBtn) return;
+  
+  openBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    openModal(modal);
+  });
+  
+  cancelEls.forEach((el) => {
+    el.addEventListener('click', (event) => {
+      event.preventDefault();
+      closeModal(modal);
+    });
+  });
+  
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) {
+      closeModal(modal);
+    }
+  });
+  
+  if (courseSelect) {
+    courseSelect.addEventListener('change', () => {
+      const option = courseSelect.options[courseSelect.selectedIndex];
+      if (option && option.value) {
+        priceField.value = parseFloat(option.dataset.price || '0').toFixed(2) + ' ل.س';
+      } else {
+        priceField.value = '';
+      }
+    });
+  }
+  
+  saveBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    const form = document.getElementById('courseRegistrationForm');
+    if (form && courseSelect && courseSelect.value) {
+      form.submit();
+    } else {
+      alert('يرجى اختيار دورة');
+    }
+  });
+}
+
 function initQuickReceipt() {
   const modal = document.getElementById('quickReceiptModal');
   const openBtn = document.getElementById('quick-receipt-btn');
   const saveBtn = document.getElementById('qr-save');
   const cancelEls = modal ? modal.querySelectorAll('[data-close], #qr-cancel') : [];
   const courseField = document.getElementById('qr-course');
-  const amountField = document.getElementById('qr-amount');
+  const remainingField = document.getElementById('qr-remaining');
   const paidField = document.getElementById('qr-paid');
-  const discountPercentField = document.getElementById('qr-disc-pct');
-  const discountAmountField = document.getElementById('qr-disc-amt');
-  const netAlert = document.getElementById('qr-net');
   if (!modal || !openBtn || !saveBtn) { return; }
-
-  const defaults = {
-    percent: parseFloat('{{ student.discount_percent|default_if_none:0 }}') || 0,
-    amount: parseFloat('{{ student.discount_amount|default_if_none:0 }}') || 0,
-  };
-
-  const applyDefaults = () => {
-    if (discountPercentField) { discountPercentField.value = defaults.percent.toString(); }
-    if (discountAmountField) { discountAmountField.value = defaults.amount.toString(); }
-  };
-
-  const updateNet = () => {
-    const price = parseFloat(amountField?.value || '0') || 0;
-    const percent = parseFloat(discountPercentField?.value || '0') || 0;
-    const amount = parseFloat(discountAmountField?.value || '0') || 0;
-    const net = Math.max(0, price - (price * (percent / 100)) - amount);
-    if (netAlert) {
-      if (price === 0) {
-        netAlert.style.display = 'none';
-      } else {
-        netAlert.style.display = 'block';
-        netAlert.textContent = 'الصافي بعد الخصومات: ' + net.toFixed(2);
-      }
-    }
-    if (paidField) {
-      const selectedOption = courseField?.options?.[courseField.selectedIndex];
-      const remaining = selectedOption ? parseFloat(selectedOption.dataset.remaining || '0') || 0 : net;
-      paidField.value = Math.min(net, remaining || net).toFixed(2);
-    }
-  };
 
   openBtn.addEventListener('click', (event) => {
     event.preventDefault();
     openModal(modal);
-    applyDefaults();
-    updateNet();
   });
 
   cancelEls.forEach((el) => {
@@ -760,20 +768,15 @@ function initQuickReceipt() {
     courseField.addEventListener('change', () => {
       const option = courseField.options[courseField.selectedIndex];
       if (option && option.value) {
-        amountField.value = parseFloat(option.dataset.price || '0').toFixed(2);
-        applyDefaults();
-        updateNet();
+        const remaining = parseFloat(option.dataset.remaining || '0');
+        remainingField.value = remaining.toFixed(2);
+        paidField.value = remaining.toFixed(2);
       } else {
-        amountField.value = '';
-        if (paidField) { paidField.value = ''; }
-        if (netAlert) { netAlert.style.display = 'none'; }
+        remainingField.value = '';
+        paidField.value = '';
       }
     });
   }
-
-  [amountField, discountPercentField, discountAmountField].forEach((field) => {
-    field?.addEventListener('input', updateNet);
-  });
 
   saveBtn.addEventListener('click', async (event) => {
     event.preventDefault();
@@ -783,10 +786,7 @@ function initQuickReceipt() {
     }
     const formData = new FormData();
     if (courseField?.value) { formData.append('course_id', courseField.value); }
-    if (amountField?.value) { formData.append('amount', amountField.value); }
     if (paidField?.value) { formData.append('paid_amount', paidField.value); }
-    if (discountPercentField) { formData.append('discount_percent', discountPercentField.value || '0'); }
-    if (discountAmountField) { formData.append('discount_amount', discountAmountField.value || '0'); }
 
     saveBtn.disabled = true;
     try {
@@ -815,90 +815,6 @@ function initQuickReceipt() {
   });
 }
 
-function initWithdraw() {
-  const modal = document.getElementById('withdrawModal');
-  const openBtn = document.getElementById('withdraw-student-btn');
-  const confirmBtn = document.getElementById('withdraw-confirm');
-  const cancelEls = modal ? modal.querySelectorAll('[data-close], #withdraw-cancel') : [];
-  const courseField = document.getElementById('withdraw-course');
-  const paidField = document.getElementById('withdraw-paid');
-  const refundField = document.getElementById('withdraw-refund');
-  if (!modal || !openBtn || !confirmBtn) { return; }
-
-  const updateFields = () => {
-    if (!courseField) { return; }
-    const option = courseField.options[courseField.selectedIndex];
-    const paidValue = option && option.dataset.paid ? parseFloat(option.dataset.paid) || 0 : 0;
-    if (paidField) { paidField.value = paidValue.toFixed(2); }
-    if (refundField && (!refundField.value || parseFloat(refundField.value) === 0)) {
-      refundField.value = paidValue.toFixed(2);
-    }
-  };
-
-  openBtn.addEventListener('click', (event) => {
-    event.preventDefault();
-    openModal(modal);
-    if (courseField && courseField.options.length > 1 && !courseField.value) {
-      courseField.selectedIndex = 1;
-    }
-    updateFields();
-  });
-
-  cancelEls.forEach((el) => {
-    el.addEventListener('click', (event) => {
-      event.preventDefault();
-      closeModal(modal);
-    });
-  });
-
-  modal.addEventListener('click', (event) => {
-    if (event.target === modal) {
-      closeModal(modal);
-    }
-  });
-
-  courseField?.addEventListener('change', updateFields);
-
-  confirmBtn.addEventListener('click', async (event) => {
-    event.preventDefault();
-    if (!courseField || !courseField.value) {
-      alert('فضلاً اختر الدورة المراد سحب الطالب منها.');
-      return;
-    }
-
-    const payload = {
-      course_id: courseField.value,
-      refund_amount: refundField?.value || '0',
-    };
-
-    confirmBtn.disabled = true;
-    try {
-      const response = await fetch(/accounts/enrollments/{{ student.id }}/withdraw/, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': getCSRFToken(),
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (response.ok && (data.ok || data.success)) {
-        alert(data.message || 'تم سحب الطالب وإنشاء قيد الإرجاع بنجاح.');
-        closeModal(modal);
-        setTimeout(() => window.location.reload(), 600);
-      } else {
-        alert(data.message || data.error || 'تعذر تنفيذ عملية السحب.');
-      }
-    } catch (error) {
-      console.error('Withdraw error:', error);
-      alert('حدث خطأ أثناء محاولة سحب الطالب.');
-    } finally {
-      confirmBtn.disabled = false;
-    }
-  });
-}
-</script>
 </script>
 
 {% endblock %}
