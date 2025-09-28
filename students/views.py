@@ -24,6 +24,46 @@ from django.contrib.auth.mixins import UserPassesTestMixin
 
 User = get_user_model()
 
+def register_course(request, student_id):
+    """Register student for a course and create enrollment with accrual entry"""
+    student = get_object_or_404(Student, pk=student_id)
+    
+    if request.method == 'POST':
+        course_id = request.POST.get('course_id')
+        if not course_id:
+            messages.error(request, 'يجب اختيار دورة')
+            return redirect('students:student_profile', student_id=student.id)
+        
+        try:
+            from accounts.models import Course, StudentEnrollment
+            course = Course.objects.get(pk=course_id)
+            
+            # Check if already enrolled
+            if StudentEnrollment.objects.filter(student=student, course=course).exists():
+                messages.warning(request, 'الطالب مسجل بالفعل في هذه الدورة')
+                return redirect('students:student_profile', student_id=student.id)
+            
+            # Create enrollment
+            enrollment = StudentEnrollment.objects.create(
+                student=student,
+                course=course,
+                enrollment_date=timezone.now().date(),
+                total_amount=course.price,
+                discount_percent=student.discount_percent or Decimal('0'),
+                discount_amount=student.discount_amount or Decimal('0'),
+                payment_method='CASH'
+            )
+            
+            # Create accrual journal entry
+            enrollment.create_accrual_enrollment_entry(request.user)
+            
+            messages.success(request, f'تم تسجيل الطالب في دورة {course.name} وإنشاء الحسابات المحاسبية بنجاح')
+            
+        except Exception as e:
+            messages.error(request, f'خطأ في التسجيل: {str(e)}')
+    
+    return redirect('students:student_profile', student_id=student.id)
+
 # Add missing view classes
 class StudentProfileView(DetailView):
     model = Student
@@ -44,35 +84,33 @@ class StudentProfileView(DetailView):
         from accounts.models import Course, CostCenter
         from django.db.models import Sum
         
+        # Get all available courses for registration
         all_courses = Course.objects.filter(is_active=True).order_by('name')
-        available_courses = []
         
-        for course in all_courses:
-            # Calculate paid amount for this student in this course
-            total_paid = StudentReceipt.objects.filter(
-                student_profile=student,
-                course=course
-            ).aggregate(total=Sum('paid_amount'))['total'] or Decimal('0.00')
-            
-            remaining = max(Decimal('0.00'), course.price - total_paid)
-            
-            if remaining > Decimal('0.01'):  # If there's remaining amount
+        context['available_courses'] = all_courses
+        context['cost_centers'] = CostCenter.objects.filter(is_active=True).order_by('code')
+
+        # Get current enrollments
+        from accounts.models import StudentEnrollment
+        course_enrollments = StudentEnrollment.objects.filter(
+            student=student, 
+            is_completed=False
+        ).select_related('course').order_by('course__name')
+
+        context['course_enrollments'] = course_enrollments
+        
+        # Get courses with remaining balance for receipts
+        available_courses = []
+        for enrollment in course_enrollments:
+            remaining = enrollment.balance_due
+            if remaining > Decimal('0.01'):
                 available_courses.append({
-                    'course': course,
-                    'remaining': remaining
+                    'course': enrollment.course,
+                    'remaining': remaining,
+                    'enrollment': enrollment
                 })
         
         context['courses'] = available_courses
-        context['cost_centers'] = CostCenter.objects.filter(is_active=True).order_by('code')
-
-        course_enrollments = (
-            StudentEnrollment.objects.filter(student=student, is_completed=False)
-            .select_related('course')
-            .annotate(total_paid=Sum('payments__paid_amount'))
-            .order_by('course__name')
-        )
-
-        context['course_enrollments'] = course_enrollments
 
         return context
 
@@ -194,42 +232,37 @@ def student_profile(request, student_id):
     from classroom.models import Classroomenrollment
     enrollments = Classroomenrollment.objects.filter(student=student).select_related('classroom')
     
-    # الدورات لواجهة إصدار الإيصال - فقط الدورات التي لم يتم سدادها بالكامل
+    # Get available courses for registration
     from accounts.models import Course, CostCenter
     from django.db.models import Sum
     
     all_courses = Course.objects.filter(is_active=True).order_by('name')
-    available_courses = []
-    
-    for course in all_courses:
-        # حساب المبلغ المدفوع للطالب في هذه الدورة
-        total_paid = StudentReceipt.objects.filter(
-            student_profile=student,
-            course=course
-        ).aggregate(total=Sum('paid_amount'))['total'] or Decimal('0.00')
-        
-        remaining = max(Decimal('0.00'), course.price - total_paid)
-        
-        if remaining > Decimal('0.01'):  # إذا كان هناك متبقي
-            available_courses.append({
-                'course': course,
-                'remaining': remaining
-            })
     
     cost_centers = CostCenter.objects.filter(is_active=True).order_by('code')
 
-    course_enrollments = (
-        StudentEnrollment.objects
-        .filter(student=student, is_completed=False)
-        .select_related('course')
-        .annotate(total_paid=Sum('payments__paid_amount'))
-        .order_by('course__name')
-    )
+    # Get current enrollments
+    from accounts.models import StudentEnrollment
+    course_enrollments = StudentEnrollment.objects.filter(
+        student=student, 
+        is_completed=False
+    ).select_related('course').order_by('course__name')
+    
+    # Get courses with remaining balance for receipts
+    available_courses = []
+    for enrollment in course_enrollments:
+        remaining = enrollment.balance_due
+        if remaining > Decimal('0.01'):
+            available_courses.append({
+                'course': enrollment.course,
+                'remaining': remaining,
+                'enrollment': enrollment
+            })
 
     context = {
         'student': student,
         'enrollments': enrollments,
-        'courses': available_courses,  # فقط الدورات المتاحة
+        'available_courses': all_courses,  # All courses for registration
+        'courses': available_courses,  # Courses with remaining balance for receipts
         'cost_centers': cost_centers,
         'course_enrollments': course_enrollments,
     }
@@ -381,43 +414,37 @@ def quick_receipt(request, student_id):
     
     # Parse inputs
     course_id = request.POST.get('course_id')
-    amount = request.POST.get('amount') or 0
     paid_amount = request.POST.get('paid_amount') or 0
-    discount_percent = request.POST.get('discount_percent') or (student.discount_percent or 0)
-    discount_amount = request.POST.get('discount_amount') or (student.discount_amount or 0)
     
     try:
-        amount = Decimal(str(amount))
         paid_amount = Decimal(str(paid_amount))
-        discount_percent = Decimal(str(discount_percent))
-        discount_amount = Decimal(str(discount_amount))
     except Exception:
         return JsonResponse({'ok': False, 'error': 'BAD_NUMBER_FORMAT'}, status=400)
     
-    course = None
-    remaining_amount = Decimal('0.00')
+    if not course_id:
+        return JsonResponse({'ok': False, 'error': 'COURSE_REQUIRED'}, status=400)
     
-    if course_id:
-        try:
-            course = Course.objects.get(pk=course_id)
-            if amount == 0:
-                amount = Decimal(course.price)
-            
-            # حساب المبلغ المتبقي للطالب في هذه الدورة
-            previous_payments = StudentReceipt.objects.filter(
-                student_profile=student,
-                course=course
-            ).aggregate(total_paid=Sum('paid_amount'))['total_paid'] or Decimal('0.00')
-            
-            course_price = course.price
-            remaining_amount = max(Decimal('0.00'), course_price - previous_payments)
-            
-            # التأكد من أن المبلغ المدفوع لا يتجاوز المتبقي
-            if paid_amount > remaining_amount:
-                paid_amount = remaining_amount
-            
-        except Course.DoesNotExist:
-            course = None
+    try:
+        course = Course.objects.get(pk=course_id)
+        
+        # Get enrollment for this student and course
+        from accounts.models import StudentEnrollment
+        enrollment = StudentEnrollment.objects.filter(
+            student=student,
+            course=course,
+            is_completed=False
+        ).first()
+        
+        if not enrollment:
+            return JsonResponse({'ok': False, 'error': 'NO_ENROLLMENT_FOUND'}, status=400)
+        
+        # Check remaining balance
+        remaining_amount = enrollment.balance_due
+        if paid_amount > remaining_amount:
+            paid_amount = remaining_amount
+        
+    except Course.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'COURSE_NOT_FOUND'}, status=400)
     
     # Create receipt
     receipt = StudentReceipt.objects.create(
@@ -425,12 +452,13 @@ def quick_receipt(request, student_id):
         student_profile=student,
         student_name=student.full_name,
         course=course,
-        course_name=(course.name if course else ''),
-        amount=amount,
+        course_name=course.name,
+        amount=enrollment.total_amount,
         paid_amount=paid_amount,
-        discount_percent=discount_percent,
-        discount_amount=discount_amount,
+        discount_percent=enrollment.discount_percent,
+        discount_amount=enrollment.discount_amount,
         payment_method='CASH',
+        enrollment=enrollment,
         created_by=request.user,
     )
     
@@ -438,14 +466,7 @@ def quick_receipt(request, student_id):
     try:
         receipt.create_accrual_journal_entry(request.user)
     except Exception as e:
-        # Do not block printing; log and return warning for UI
         journal_warning = f"JOURNAL_ERROR: {e}"
-        try:
-            # Simple server-side log for debugging
-            import logging
-            logging.getLogger(__name__).exception("Failed to post journal for receipt %s", receipt.id)
-        except Exception:
-            pass
     
     from django.urls import reverse
     print_url = reverse('accounts:student_receipt_print', args=[receipt.id])
@@ -453,19 +474,9 @@ def quick_receipt(request, student_id):
         'ok': True, 
         'receipt_id': receipt.id, 
         'print_url': print_url,
-        'remaining_amount': float(remaining_amount - paid_amount) if course else 0,
+        'remaining_amount': float(remaining_amount - paid_amount),
         'warning': journal_warning
     })
-
-def register_course(request, student_id):
-    student = get_object_or_404(Student, pk=student_id)
-    enrollment = StudentEnrollment.objects.create(
-        student=student,
-        enrollment_date=timezone.now()  # أضف هذا السطر
-    )
-    enrollment.post_opening_entry()  # إذا كان لديك هذه الدالة
-    messages.success(request, 'تم تسجيل الطالب في الدورة وإنشاء الحسابات بنجاح.')
-    return redirect('students:student_profile', student_id=student.id)
 
 def quick_receipt(request, student_id):
     student = get_object_or_404(Student, pk=student_id)
@@ -473,7 +484,7 @@ def quick_receipt(request, student_id):
         amount = request.POST.get('amount')
         if amount:
             receipt = StudentReceipt.objects.create(student=student, amount=amount)
-            receipt.create_accrual_journal_entry()  # إذا كان لديك هذه الدالة
+            receipt.create_accrual_journal_entry(request.user)
             messages.success(request, 'تم استلام الدفعة وتسجيل القيد المالي.')
             return redirect('students:student_profile', student_id=student.id)
     return render(request, 'students/quick_receipt.html', {'student': student})
