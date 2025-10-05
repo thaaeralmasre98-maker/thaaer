@@ -1,0 +1,51 @@
+{% load static %}
+{% block content %}
+
+    <link rel="stylesheet" href="{% static 'css/responsive.css' %}">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+ 
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="logo">
+                <img src="{% static "img/logo.png" %}" alt="معهد اليمان">
+                <h1>معهد اليمان</h1>
+            </div>
+            
+            <form id="loginForm" class="auth-form" method='POST'>
+            {% csrf_token %}    
+                <h2>تسجيل الدخول</h2>
+                {% include "partials/_alerts.html" %}
+                {% csrf_token %}
+                {{form}}
+                
+                {% comment %} <div class="form-options">
+                    <label class="remember-me">
+                        <input name='rememberme' type="checkbox"> تذكرني
+                    </label>
+                    <a href="#" class="forgot-password">نسيت كلمة المرور؟</a>
+                </div> 
+                {% endcomment %}
+                <div>
+                    <hr>
+                    <hr>
+                    <hr>
+                    <div>
+                    <input type="submit" class="btn btn-primary" name='btnlogin' value="login"> <i class="fas fa-sign-in-alt"></i></input>
+                </div>
+
+                {% comment %} <div class="auth-footer">
+                    ليس لديك حساب؟ <a href="{% url "signup" %}">سجل الآن</a>
+                </div> {% endcomment %}
+                
+                <div id="loginError" class="error-message"></div>
+            </form>
+        </div>
+    </div>
+    <script>
+        history.pushState(null, null, location.href);
+            window.onpopstate = function () {
+                history.go(1);  // يمنع الرجوع إلى صفحة التسجيل
+        };
+</script>
+{% endblock %}

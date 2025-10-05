@@ -1,0 +1,266 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="module-header">
+    <h2>الملف الشخصي للمعلم</h2>
+    <div class="header-actions">
+        <a href="{% url 'employ:teachers' %}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> الرجوع إلى قائمة المعلمين
+        </a>
+        <a href="{% url 'attendance:teacher_attendance' %}?teacher={{ teacher.id }}" class="btn btn-info">
+            <i class="fas fa-history"></i> سجل الحضور الكامل
+        </a>
+    </div>
+
+{% if salary_status %}
+<div class="alert alert-success mt-3">تم دفع راتب شهر {{ salary_period_label }} للمعلم وتم توثيق القيد المحاسبي بنجاح.</div>
+{% elif salary_amount > 0 %}
+<div class="alert alert-warning mt-3">راتب شهر {{ salary_period_label }} ما يزال بانتظار الدفع.</div>
+{% endif %}
+
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header">
+                <h5 class="mb-0">المعلومات الأساسية</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="small text-muted">الاسم الكامل</div>
+                        <div class="fw-bold">{{ teacher.full_name }}</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="small text-muted">رقم الهاتف</div>
+                        <div>{{ teacher.phone_number|default:"غير متوفر" }}</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="small text-muted">الفروع</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for branch in teacher.get_branches_list %}
+                                <span class="badge bg-primary">{{ branch }}</span>
+                            {% empty %}
+                                <span class="text-muted">لا توجد معلومات</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="small text-muted">تاريخ التعيين</div>
+                        <div>{{ teacher.hire_date|date:"Y-m-d" }}</div>
+                    </div>
+                </div>
+                {% if teacher.notes %}
+                <hr>
+                <div class="small text-muted">ملاحظات</div>
+                <div>{{ teacher.notes }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-3">
+            <div class="card-header">
+                <h5 class="mb-0">إحصائيات الجلسات والراتب</h5>
+            </div>
+            <div class="card-body">
+                <div class="row row-cols-1 row-cols-md-4 g-3 text-center">
+                    <div class="col">
+                        <div class="stat-card">
+                            <div class="stat-card-icon bg-info"><i class="fas fa-calendar-day"></i></div>
+                            <div class="stat-card-value">{{ daily_sessions }}</div>
+                            <div class="stat-card-label">جلسات اليوم</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-card">
+                            <div class="stat-card-icon bg-success"><i class="fas fa-calendar-alt"></i></div>
+                            <div class="stat-card-value">{{ monthly_sessions }}</div>
+                            <div class="stat-card-label">جلسات الشهر الحالي</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-card">
+                            <div class="stat-card-icon bg-primary"><i class="fas fa-calendar"></i></div>
+                            <div class="stat-card-value">{{ yearly_sessions }}</div>
+                            <div class="stat-card-label">جلسات السنة الحالية</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-card">
+                            <div class="stat-card-icon bg-warning"><i class="fas fa-money-bill-wave"></i></div>
+                            <div class="stat-card-value">{{ salary_amount|floatformat:2 }}</div>
+                            <div class="stat-card-label">الراتب المحسوب</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="salary-status-section mt-4">
+                    <div class="card {% if salary_status %}bg-success{% else %}bg-danger{% endif %} text-white">
+                        <div class="card-body text-center">
+                            <div class="mb-2"><span class="badge bg-light text-dark">راتب شهر {{ salary_period_label }}</span></div>
+                            {% if not salary_period_is_current %}
+                            <small class="d-block text-warning mb-2">* الفترة المعروضة تخص الشهر السابق.</small>
+                            {% endif %}
+                            {% if salary_status %}
+                                <i class="fas fa-check-circle fa-2x mb-3"></i>
+                                <h5>تم دفع راتب شهر {{ salary_period_label }}</h5>
+                                <p class="mb-0">تم إنشاء القيد المحاسبي لهذا الشهر.</p>
+                            {% else %}
+                                <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+                                <h5>راتب شهر {{ salary_period_label }} غير مدفوع</h5>
+                                <p class="mb-3">المبلغ المستحق: {{ salary_amount|floatformat:2 }} ر.س</p>
+                                {% if salary_amount > 0 %}
+                                <form method="post" action="{% url 'employ:pay_teacher_salary' teacher.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="year" value="{{ salary_year }}">
+                                    <input type="hidden" name="month" value="{{ salary_month }}">
+                                    <input type="hidden" name="return_to_profile" value="1">
+                                    <button type="submit" class="btn btn-light"
+                                            onclick="return confirm('تأكيد دفع مبلغ {{ salary_amount|floatformat:2 }} للمعلم {{ teacher.full_name }} عن شهر {{ salary_period_label }}؟')">
+                                        <i class="fas fa-money-bill-wave"></i> دفع الراتب الآن
+                                    </button>
+                                </form>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header">
+                <h6 class="mb-0">حضور اليوم ({{ today|date:"Y-m-d" }})</h6>
+            </div>
+            <div class="card-body text-center">
+                {% if daily_attendance %}
+                    <div class="status-indicator {% if daily_attendance.status == 'present' %}paid{% else %}unpaid{% endif %} mb-3">
+                        {% if daily_attendance.status == 'present' %}
+                            <i class="fas fa-check-circle"></i> حاضر
+                        {% elif daily_attendance.status == 'absent' %}
+                            <i class="fas fa-times-circle"></i> غائب
+                        {% elif daily_attendance.status == 'late' %}
+                            <i class="fas fa-clock"></i> متأخر
+                        {% else %}
+                            <i class="fas fa-user-clock"></i> غير مسجل
+                        {% endif %}
+                    </div>
+                    <p><strong>عدد الجلسات:</strong> {{ daily_attendance.session_count|default:0 }}</p>
+                    {% if daily_attendance.notes %}
+                        <p class="text-muted">{{ daily_attendance.notes }}</p>
+                    {% endif %}
+                {% else %}
+                    <div class="text-muted">
+                        <i class="fas fa-calendar-times fa-2x mb-2"></i>
+                        <p>لا يوجد حضور مسجل اليوم.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-3">
+            <div class="card-header">
+                <h6 class="mb-0">إحصائيات الشهر الحالي</h6>
+            </div>
+            <div class="card-body">
+                <div class="row row-cols-1 row-cols-md-2 g-3 text-center">
+                    <div class="col">
+                        <div class="stat-card">
+                            <div class="stat-card-icon bg-success"><i class="fas fa-check"></i></div>
+                            <div class="stat-card-value">{{ monthly_stats.present_days|default:0 }}</div>
+                            <div class="stat-card-label">أيام حضور</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-card">
+                            <div class="stat-card-icon bg-danger"><i class="fas fa-times"></i></div>
+                            <div class="stat-card-value">{{ monthly_stats.absent_days|default:0 }}</div>
+                            <div class="stat-card-label">أيام غياب</div>
+                        </div>
+                    </div>
+                </div>
+                {% if monthly_stats.total_days %}
+                <div class="mt-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">نسبة الحضور</span>
+                        <span class="fw-bold">{% widthratio monthly_stats.present_days monthly_stats.total_days 100 %}%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar bg-success" style="width: {% widthratio monthly_stats.present_days monthly_stats.total_days 100 %}%"></div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <h6 class="mb-0">إحصائيات السنة الحالية</h6>
+            </div>
+            <div class="card-body">
+                <div class="row row-cols-1 row-cols-md-2 g-3 text-center">
+                    <div class="col">
+                        <div class="stat-card">
+                            <div class="stat-card-icon bg-success"><i class="fas fa-calendar-check"></i></div>
+                            <div class="stat-card-value">{{ yearly_stats.present_days|default:0 }}</div>
+                            <div class="stat-card-label">أيام حضور</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="stat-card">
+                            <div class="stat-card-icon bg-primary"><i class="fas fa-chalkboard-teacher"></i></div>
+                            <div class="stat-card-value">{{ yearly_stats.total_sessions|default:0 }}</div>
+                            <div class="stat-card-label">إجمالي الجلسات</div>
+                        </div>
+                    </div>
+                </div>
+                {% if yearly_stats.total_days %}
+                <div class="mt-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">نسبة الحضور السنوية</span>
+                        <span class="fw-bold">{% widthratio yearly_stats.present_days yearly_stats.total_days 100 %}%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar bg-success" style="width: {% widthratio yearly_stats.present_days yearly_stats.total_days 100 %}%"></div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mt-4">
+    <div class="card-header">
+        <h5 class="mb-0">إجراءات سريعة</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-3">
+                <a href="{% url 'employ:salary_management' %}" class="btn btn-outline-primary w-100">
+                    <i class="fas fa-money-bill-wave"></i>
+                </a>
+            </div>
+            <div class="col-md-3">
+                <a href="{% url 'attendance:teacher_attendance' %}?teacher={{ teacher.id }}" class="btn btn-outline-info w-100">
+                    <i class="fas fa-calendar-check"></i>
+                </a>
+            </div>
+            <div class="col-md-3">
+                <a href="{% url 'accounts:dashboard' %}" class="btn btn-outline-success w-100">
+                    <i class="fas fa-chart-bar"></i>
+                </a>
+            </div>
+            <div class="col-md-3">
+                <a href="{% url 'courses:subject_list' %}" class="btn btn-outline-secondary w-100">
+                    <i class="fas fa-book"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
